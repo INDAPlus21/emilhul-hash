@@ -4,15 +4,16 @@ use hashtable::{HashTable, data::Data};
 use clap::{Parser, Subcommand};
 use anyhow::{Context, Result};
 
-/// Search for a pattern in  a file and display the lines that contain it.
+/// Simple DBMS (Data Base Managment System) storing data in a .csv file.  
 #[derive(Parser)]
 struct Cli {
+    /// The path to a .csv file with database information.
+    /// Will create a file if it doesn't exist.
+    #[clap(parse(from_os_str))]
+    path: std::path::PathBuf,
     /// The command to run on the database
     #[clap(subcommand)]
     command: Command,
-    /// The path to the file to read
-    #[clap(parse(from_os_str))]
-    path: std::path::PathBuf,
 }
 
 fn main() -> Result<()> {
