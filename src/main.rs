@@ -1,15 +1,15 @@
 mod hashtable;
+use hashtable::{HashTable, data::Data};
 
-use hashtable::{HashTable, hash::Hashable, data::Data};
-
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use anyhow::{Context, Result};
 
 /// Search for a pattern in  a file and display the lines that contain it.
 #[derive(Parser)]
 struct Cli {
-    /// The pattern to look for
-    pattern: String,
+    /// The command to run on the database
+    #[clap(subcommand)]
+    command: Command,
     /// The path to the file to read
     #[clap(parse(from_os_str))]
     path: std::path::PathBuf,
@@ -18,39 +18,97 @@ struct Cli {
 fn main() -> Result<()> {
     let args = Cli::parse();
 
-    /*let stdout = io::stdout();
-    let mut handle = io::BufWriter::new(stdout.lock());
+    let mut table = read(&args.path)
+        .with_context(|| format!("Failed to create table"))?;
 
-    let content = std::fs::read_to_string(&args.path)
-        .with_context(|| format!("could not read file '{:?}'", args.path))?;
-
-    for line in content.lines() {
-        if line.contains(&args.pattern) {
-            println!("{}", line);
+    match args.command {
+        Command::Insert{ key, value } => {
+            let data = Data { key, value };
+            table.insert(data)
+                .with_context(|| format!("Failed to insert data into table"))?;
+        },
+        Command::Delete { key } => {
+            table.delete(key)
+                .with_context(|| "Failed to remove data corresponding to key")?;
         }
-    }*/
+        Command::Get{ key } => {
+            println!("{}", table.get(key)
+                .with_context(|| format!("Failed to get value corresponding to key"))?);
+        },
+        Command::Print => {
+            table.print()
+                .with_context(|| format!("Failed to print table"))?;
+        }
+    };
 
-    let mut table = HashTable::<[u8; 4], String>::new(4);
-    let data = Data {key: 100_u32.to_be_bytes(), value: format!("Name: {}, Age: {}", "Test", 20) };
-    table.insert(data)
-        .with_context(|| format!("Could not insert data into table"))?;
+    write(table, &args.path)
+        .with_context(|| format!("Failed to write to file"))?;
     
-    let data = Data {key: 101231312_u32.to_be_bytes(), value: format!("Name: {}, Age: {}", "Hash", 22) };
-    table.insert(data)
-        .with_context(|| format!("Could not insert data into table"))?;
-    
-    let data = Data {key: 99_u32.to_be_bytes(), value: format!("Name: {}, Age: {}", "Table", 80) };
-    table.insert(data)
-        .with_context(|| format!("Could not insert data into table"))?;
+    Ok(())
+}
 
-    table.print()
-        .with_context(|| format!("Failed to print table"))?;
-    
-    table.delete(99_u32.to_be_bytes())
-        .with_context(|| "Failed to remove data corresponding to key")?;
-    
-    table.print()
-        .with_context(|| format!("Failed to print table"))?;
+#[derive(Subcommand, Clone)]
+enum Command {
+    /// Insert a given value at a given key
+    Insert {
+        /// The key to insert the value at
+        key: String,
+        /// The value to insert
+        value: String
+    },
+    /// Delete a value by a given key
+    Delete {
+        /// The key to remove the value at
+        key: String
+    },
+    /// Get a value by a given key
+    Get {
+        /// The key to get the value at
+        key: String,
+    },
+    /// Prints table
+    Print,
+}
 
+fn read(path: &std::path::PathBuf) -> Result<HashTable<String, String>> {
+    let rdr = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+        .with_context(|| format!("Failed to open or create file for path {:?}", path))?;
+    let mut reader = csv::Reader::from_reader(rdr);
+
+    let mut table = HashTable::<String, String>::new(13);
+
+    for result in reader.records() {
+        let record = result?;
+        let (key, value) = (record[0].to_string(), record[1].to_string());
+        let data = Data { key, value };
+        table.insert(data)
+            .with_context(|| "Failed to insert data into table")?;
+    }
+    Ok(table)
+}
+
+fn write(mut table: HashTable<String, String>, path: &std::path::PathBuf) -> Result<()> {
+    let mut writer = csv::Writer::from_path(path)
+        .with_context(|| format!("Failed to create writer for path {:?}", path))?;
+    writer.write_record(["key", "valiue"])
+        .with_context(|| format!("Failed to write record"))?;
+    for i in 0..table.capacity as usize {
+        match &mut table.table[i] {
+            Some(_vec) => {
+                for j in 0.._vec.len() {
+                    let data = _vec[j].clone();
+                    writer.write_record([data.key, data.value])
+                        .with_context(|| format!("Failed to write record"))?;
+                }
+            },
+            None => ()
+        }
+    }
+    writer.flush()
+        .with_context(|| format!("Failed to flush file"))?;
     Ok(())
 }

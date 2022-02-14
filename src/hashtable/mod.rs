@@ -9,7 +9,7 @@ use self::hash::Hashable;
 
 #[derive(Debug)]
 pub struct HashTable<K, V> {
-    capacity: u32,
+    pub capacity: u32,
     load_factor: f32,
     size: u32,
     pub table: Vec<Option<Vec<Data<K, V>>>>,
@@ -48,26 +48,9 @@ where
             }
         }
 
-        if (self.size as f32 / self.capacity as f32 ) >= self.load_factor {
-            println!("Resizing table...\r");
-            self.capacity *= 2;
-            let mut table = HashTable::<K, V>::new(self.capacity);
-            println!("Resizing done");
-            println!("Rehashing keys...");
-            for _bucket in &self.table {
-                match _bucket { 
-                    Some(_vec) => {
-                        for _data in _vec {
-                            let data = _data.clone();
-                            table.insert(data)
-                                .with_context(|| format!("Failed to insert data into new table"))?;
-                        }
-                    },
-                    None => continue
-                }
-            }
-            println!("Rehashing done");
-            *self = table;
+        if (self.size as f32 / self.capacity as f32 ) >= self.load_factor { 
+            self.resize()
+                .with_context(|| format!("Failed to resize table"))?
         }
 
         Ok(())
@@ -79,19 +62,49 @@ where
         match &mut self.table[index] {
             Some(_vec) => {
                 if _vec.len() == 1 {
-                    self.table[index] = None;
-                }
-                else {
+                    if key == _vec[0].key {
+                        self.table[index] = None;
+                        Ok(())
+                    } else {
+                        bail!("Failed to find key in table")
+                    }
+                } else {
+                    let mut key_found = false;
                     for i in 0.._vec.len() {
                         if key == _vec[i].key {
                             _vec.swap_remove(i);
+                            key_found = true;
                         }
+                    }
+                    if key_found {
+                        Ok(())
+                    } else {
+                        bail!("Failed to find key in table")
                     }
                 }
             },
-            None => bail!("No such key in table")
+            None => bail!("Failed to find key in table")
         }
-        Ok(())
+    }
+
+    pub fn get(&mut self, key: K) -> Result<V> {
+        let index = self.compress(key.hash());
+        let mut value: Option<V> = None;
+
+        match &mut self.table[index] {
+            Some(_vec) => {
+                for i in 0.._vec.len() {
+                    if key == _vec[i].key {
+                      value = Some(_vec[i].value.clone());
+                    }
+                }
+            },
+            None => ()
+        }
+        match value {
+            Some(_value) => Ok(_value),
+            None => bail!("Failed to find key in table"),
+        }
     }
 
     pub fn print(&self) -> Result<()> {
@@ -114,7 +127,26 @@ where
         Ok(())
     }
 
-    pub fn compress(&self, hash: u32) -> usize {
+    fn resize(&mut self) -> Result<()> {
+        self.capacity *= 2;
+        let mut table = HashTable::<K, V>::new(self.capacity);
+        for _bucket in &self.table {
+            match _bucket { 
+                Some(_vec) => {
+                    for _data in _vec {
+                        let data = _data.clone();
+                        table.insert(data)
+                            .with_context(|| format!("Failed to insert data into new table"))?;
+                    }
+                },
+                None => continue
+            }
+        }
+        *self = table;
+        Ok(())
+    }
+
+    fn compress(&self, hash: u32) -> usize {
         (hash % self.capacity) as usize
     }
 }
